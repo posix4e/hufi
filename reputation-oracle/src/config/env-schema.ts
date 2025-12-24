@@ -29,4 +29,13 @@ export const envValidator = Joi.object({
   S3_SECRET_KEY: Joi.string().required(),
   S3_BUCKET: Joi.string(),
   S3_USE_SSL: Joi.string().valid('true', 'false'),
+  // TDX Attestation
+  RECORDING_ORACLE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .allow(''),
+  EXPECTED_MRTD: Joi.string().allow(''),
+  EXPECTED_RTMR0: Joi.string().allow(''),
+  EXPECTED_RTMR1: Joi.string().allow(''),
+  EXPECTED_RTMR2: Joi.string().allow(''),
+  EXPECTED_RTMR3: Joi.string().allow(''),
 });

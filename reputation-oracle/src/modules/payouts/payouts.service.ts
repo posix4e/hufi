@@ -8,7 +8,8 @@ import {
   EscrowUtils,
   TransactionUtils,
 } from '@human-protocol/sdk';
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import Decimal from 'decimal.js';
 import { ethers } from 'ethers';
 
@@ -17,6 +18,7 @@ import { ContentType } from '@/common/enums';
 import * as escrowUtils from '@/common/utils/escrow';
 import { Web3ConfigService } from '@/config';
 import logger from '@/logger';
+import { AttestationVerifierService } from '@/modules/attestation';
 import { WalletWithProvider, Web3Service } from '@/modules/web3';
 
 import * as payoutsUtils from './payouts.utils';
@@ -30,21 +32,101 @@ import {
 import { StorageService } from '../storage';
 
 @Injectable()
-export class PayoutsService {
+export class PayoutsService implements OnModuleInit {
   private readonly logger = logger.child({
     context: PayoutsService.name,
   });
+  private attestationEnabled = false;
+  private lastAttestationCheck: Date | null = null;
+  private attestationCheckInterval = 5 * 60 * 1000; // 5 minutes
 
   constructor(
+    private readonly attestationVerifier: AttestationVerifierService,
+    private readonly configService: ConfigService,
     private readonly storageService: StorageService,
     private readonly web3ConfigService: Web3ConfigService,
     private readonly web3Service: Web3Service,
   ) {}
 
+  async onModuleInit() {
+    // Check if attestation verification is enabled
+    const recordingOracleUrl = this.configService.get<string>(
+      'RECORDING_ORACLE_URL',
+    );
+    this.attestationEnabled = !!recordingOracleUrl;
+
+    if (this.attestationEnabled) {
+      this.logger.info(
+        'TDX attestation verification enabled for recording oracle',
+        { recordingOracleUrl },
+      );
+    } else {
+      this.logger.warn(
+        'TDX attestation verification is DISABLED - running without trust verification',
+      );
+    }
+  }
+
+  /**
+   * Verify that the recording oracle is running in a trusted TDX environment
+   * This should be called before processing any data from the recording oracle
+   */
+  private async verifyRecordingOracleAttestation(): Promise<boolean> {
+    if (!this.attestationEnabled) {
+      this.logger.debug('Attestation verification disabled, skipping');
+      return true;
+    }
+
+    // Check if we need to re-verify (based on interval)
+    if (
+      this.lastAttestationCheck &&
+      Date.now() - this.lastAttestationCheck.getTime() <
+        this.attestationCheckInterval
+    ) {
+      this.logger.debug('Using cached attestation verification result');
+      return true;
+    }
+
+    this.logger.info('Performing TDX attestation verification...');
+
+    try {
+      const result = await this.attestationVerifier.performAttestationCheck();
+
+      if (result.valid) {
+        this.logger.info('Recording oracle attestation verified successfully', {
+          measurements: result.measurements,
+          warnings: result.warnings,
+        });
+        this.lastAttestationCheck = new Date();
+        return true;
+      } else {
+        this.logger.error('Recording oracle attestation verification FAILED', {
+          errors: result.errors,
+          warnings: result.warnings,
+        });
+        return false;
+      }
+    } catch (error) {
+      this.logger.error('Error during attestation verification', error);
+      return false;
+    }
+  }
+
   async runPayoutsCycle(): Promise<void> {
     this.logger.info('Going to run payouts cycle', {
       supportedChainIds: this.web3Service.supportedChainIds,
     });
+
+    // Verify recording oracle attestation before processing any payouts
+    const attestationValid = await this.verifyRecordingOracleAttestation();
+    if (!attestationValid) {
+      this.logger.error(
+        'Recording oracle attestation verification failed - aborting payouts cycle',
+      );
+      throw new Error(
+        'Recording oracle attestation verification failed - cannot trust intermediate results',
+      );
+    }
 
     for (const chainId of this.web3Service.supportedChainIds) {
       const chainLogger = this.logger.child({ chainId });

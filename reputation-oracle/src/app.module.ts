@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import Environment from './common/utils/environment';
 import { EnvConfigModule, envValidator } from './config';
+import { AttestationModule } from './modules/attestation';
 import { PayoutModule } from './modules/payouts';
 import { StorageModule } from './modules/storage';
 import { Web3Module } from './modules/web3';
@@ -17,6 +18,7 @@ import { Web3Module } from './modules/web3';
       validationSchema: envValidator,
     }),
     EnvConfigModule,
+    AttestationModule,
     PayoutModule,
     StorageModule,
     Web3Module,
