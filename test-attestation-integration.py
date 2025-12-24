@@ -13,7 +13,7 @@ import sys
 import urllib.request
 import urllib.error
 
-RECORDING_ORACLE_URL = "http://localhost:13000"
+RECORDING_ORACLE_URL = "http://127.0.0.1:13000"
 
 # Expected measurements from the TDX VM
 EXPECTED_MRTD = "ff010300000000000b0104000000000000000000000000007bf063280e94fb051f5dd7b1fc59ce9aac42bb961df8d44b"
