@@ -1,0 +1,34 @@
+---
+# Setup SEV Host for Recording Oracle
+# Configures AMD SEV-SNP on bare metal host
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-host.yml
+#
+# Prerequisites:
+#   - AMD EPYC processor (EPYC 7003/9004 series for SEV-SNP)
+#   - SEV enabled in BIOS
+#   - Ubuntu 22.04+ or similar with kernel 5.19+
+
+- name: Setup SEV Host for Recording Oracle
+  hosts: sev_host
+  become: true
+
+  roles:
+    - sev_host
+
+  post_tasks:
+    - name: Summary
+      ansible.builtin.debug:
+        msg: |
+          SEV Host Setup Complete!
+
+          Next steps:
+          1. If SEV device was not found, enable AMD SEV/SME in BIOS
+          2. Add kernel parameters if needed:
+             Edit /etc/default/grub:
+               GRUB_CMDLINE_LINUX="mem_encrypt=on kvm_amd.sev=1"
+             Run: update-grub && reboot
+
+          3. Deploy SEV VM:
+             ansible-playbook playbooks/deploy.yml

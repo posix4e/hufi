@@ -1,0 +1,149 @@
+---
+# SEV Host Setup for Recording Oracle
+# Configures AMD SEV-SNP on the bare metal host
+
+- name: Check CPU vendor is AMD
+  ansible.builtin.shell:
+    cmd: grep -m1 'vendor_id' /proc/cpuinfo | grep -q AMD
+  register: cpu_vendor
+  changed_when: false
+  failed_when: false
+
+- name: Fail if not AMD CPU
+  ansible.builtin.fail:
+    msg: "SEV requires AMD EPYC processor. Found non-AMD CPU."
+  when: cpu_vendor.rc != 0
+
+- name: Check for SEV CPU flags
+  ansible.builtin.shell:
+    cmd: grep -E 'sev|sev_es|sev_snp' /proc/cpuinfo | head -1
+  register: sev_flags
+  changed_when: false
+  failed_when: false
+
+- name: Display SEV CPU flags
+  ansible.builtin.debug:
+    msg: "SEV CPU flags: {{ sev_flags.stdout | default('none found') }}"
+
+- name: Warn if SEV flags not found
+  ansible.builtin.debug:
+    msg: "WARNING: SEV CPU flags not found in /proc/cpuinfo. SEV may need BIOS enablement."
+  when: sev_flags.stdout | length == 0
+
+- name: Load required kernel modules
+  ansible.builtin.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ sev_kernel_modules }}"
+  become: true
+
+- name: Ensure kernel modules load on boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/sev.conf
+    line: "{{ item }}"
+    create: true
+    mode: '0644'
+  loop: "{{ sev_kernel_modules }}"
+  become: true
+
+- name: Check if SEV device exists
+  ansible.builtin.stat:
+    path: "{{ sev_device_path }}"
+  register: sev_device
+
+- name: Display SEV device status
+  ansible.builtin.debug:
+    msg: "SEV device {{ sev_device_path }}: {{ 'exists' if sev_device.stat.exists else 'NOT FOUND' }}"
+
+- name: Fail if SEV device not found
+  ansible.builtin.fail:
+    msg: |
+      SEV device {{ sev_device_path }} not found.
+
+      Possible causes:
+      1. SEV not enabled in BIOS - Enable AMD SME/SEV in BIOS settings
+      2. Kernel too old - Need kernel 5.19+ for SEV-SNP
+      3. Missing kernel parameters - Add 'mem_encrypt=on kvm_amd.sev=1' to GRUB_CMDLINE_LINUX
+
+      To enable, edit /etc/default/grub:
+        GRUB_CMDLINE_LINUX="mem_encrypt=on kvm_amd.sev=1"
+      Then run: update-grub && reboot
+  when: not sev_device.stat.exists
+
+- name: Install SEV-related packages
+  ansible.builtin.apt:
+    name: "{{ sev_packages }}"
+    state: present
+    update_cache: true
+  become: true
+
+- name: Check OVMF firmware exists
+  ansible.builtin.stat:
+    path: "{{ ovmf_code_path }}"
+  register: ovmf_check
+
+- name: Display OVMF status
+  ansible.builtin.debug:
+    msg: "OVMF firmware: {{ 'found at ' + ovmf_code_path if ovmf_check.stat.exists else 'NOT FOUND' }}"
+
+- name: Set SEV device permissions
+  ansible.builtin.file:
+    path: "{{ sev_device_path }}"
+    owner: root
+    group: "{{ libvirt_group }}"
+    mode: '0660'
+  become: true
+  when: sev_device.stat.exists
+
+- name: Create udev rule for SEV device permissions
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/71-sev.rules
+    content: |
+      # Allow kvm group access to SEV device
+      KERNEL=="sev", GROUP="kvm", MODE="0660"
+    mode: '0644'
+  become: true
+  notify: Reload udev rules
+
+- name: Ensure libvirt is running
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+  become: true
+
+- name: Check SEV capability via virsh
+  ansible.builtin.command:
+    cmd: virsh domcapabilities --machine q35 --virttype kvm
+  register: domcaps
+  changed_when: false
+  failed_when: false
+
+- name: Check for SEV-SNP support in capabilities
+  ansible.builtin.set_fact:
+    sev_snp_supported: "{{ 'sev-snp' in domcaps.stdout }}"
+    sev_supported: "{{ 'sev' in domcaps.stdout }}"
+
+- name: Display SEV support status
+  ansible.builtin.debug:
+    msg: |
+      SEV Support Status:
+        SEV: {{ 'supported' if sev_supported else 'NOT supported' }}
+        SEV-SNP: {{ 'supported' if sev_snp_supported else 'NOT supported' }}
+
+- name: Get SEV platform info
+  ansible.builtin.shell:
+    cmd: |
+      if [ -f /sys/kernel/debug/sev/firmware_version ]; then
+        echo "Firmware: $(cat /sys/kernel/debug/sev/firmware_version 2>/dev/null || echo 'N/A')"
+      fi
+      dmesg | grep -i "SEV\|AMD Memory Encryption" | tail -5
+  register: sev_info
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Display SEV platform info
+  ansible.builtin.debug:
+    var: sev_info.stdout_lines
+  when: sev_info.stdout_lines is defined

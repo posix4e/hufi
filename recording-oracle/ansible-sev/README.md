@@ -16,27 +16,33 @@ This directory contains Ansible playbooks and roles for deploying the Recording 
 1. **Configure the inventory**:
    ```bash
    # Edit inventory/hosts.yml or pass variables on command line
-   ansible-playbook playbooks/deploy.yml \
+   ansible-playbook playbooks/setup-host.yml \
      -e "sev_host_ip=51.68.31.68" \
      -e "sev_host_user=ubuntu"
    ```
 
-2. **Deploy the SEV VM**:
+2. **Setup the host** (first time only):
+   ```bash
+   ansible-playbook playbooks/setup-host.yml
+   ```
+   This installs packages, loads kernel modules, and verifies SEV is enabled.
+
+3. **Deploy the SEV VM**:
    ```bash
    ansible-playbook playbooks/deploy.yml
    ```
 
-3. **Check status**:
+4. **Check status**:
    ```bash
    ansible-playbook playbooks/status.yml
    ```
 
-4. **Get SEV measurements**:
+5. **Get SEV measurements**:
    ```bash
    ansible-playbook playbooks/measure.yml
    ```
 
-5. **Destroy the VM**:
+6. **Destroy the VM**:
    ```bash
    ansible-playbook playbooks/destroy.yml
    ```
@@ -104,12 +110,20 @@ ansible-sev/
 ├── group_vars/
 │   └── all.yml
 ├── playbooks/
+│   ├── setup-host.yml    # Host setup (run first)
 │   ├── deploy.yml
 │   ├── destroy.yml
 │   ├── measure.yml
 │   └── status.yml
 └── roles/
-    ├── sev_vm/
+    ├── sev_host/         # Host configuration role
+    │   ├── tasks/
+    │   │   └── main.yml
+    │   ├── vars/
+    │   │   └── main.yml
+    │   └── handlers/
+    │       └── main.yml
+    ├── sev_vm/           # VM provisioning role
     │   ├── tasks/
     │   │   ├── main.yml
     │   │   ├── provision.yml
@@ -123,7 +137,7 @@ ansible-sev/
     │   │   └── network-config.yml.j2
     │   └── vars/
     │       └── main.yml
-    └── sev_attestation/
+    └── sev_attestation/  # Attestation role
         ├── tasks/
         │   ├── main.yml
         │   ├── status.yml
