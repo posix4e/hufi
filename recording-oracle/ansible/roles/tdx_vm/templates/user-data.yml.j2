@@ -11,11 +11,17 @@ users:
     shell: /bin/bash
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
     lock_passwd: false
-    plain_text_passwd: {{ guest_password }}
 {% if guest_ssh_authorized_key %}
     ssh_authorized_keys:
       - {{ guest_ssh_authorized_key }}
 {% endif %}
+
+chpasswd:
+  expire: false
+  users:
+    - name: {{ guest_user }}
+      password: {{ guest_password }}
+      type: text
 
 # Install Docker and docker-compose
 package_update: true
@@ -40,6 +46,7 @@ write_files:
 
       def get_tdx_quote(report_data=None):
           """Generate TDX Quote using TSM configfs interface."""
+          import sys
           if report_data is None:
               report_data = bytes(64)
           elif len(report_data) < 64:
@@ -50,17 +57,37 @@ write_files:
           report_path = os.path.join(TSM_REPORT_PATH, report_name)
 
           try:
+              print(f"Creating report at {report_path}", file=sys.stderr)
               os.makedirs(report_path, exist_ok=True)
-              with open(os.path.join(report_path, "inblob"), "wb") as f:
+
+              # List files in the report directory
+              files = os.listdir(report_path)
+              print(f"Report directory contents: {files}", file=sys.stderr)
+
+              inblob_path = os.path.join(report_path, "inblob")
+              outblob_path = os.path.join(report_path, "outblob")
+
+              print(f"Writing {len(report_data)} bytes to inblob", file=sys.stderr)
+              with open(inblob_path, "wb") as f:
                   f.write(report_data)
-              with open(os.path.join(report_path, "outblob"), "rb") as f:
+
+              print(f"Reading outblob", file=sys.stderr)
+              with open(outblob_path, "rb") as f:
                   quote = f.read()
+
+              print(f"Got quote of {len(quote)} bytes", file=sys.stderr)
+              if len(quote) == 0:
+                  print("WARNING: Quote is empty!", file=sys.stderr)
+
               return quote, report_data
+          except Exception as e:
+              print(f"Error generating quote: {e}", file=sys.stderr)
+              raise
           finally:
               try:
                   os.rmdir(report_path)
-              except:
-                  pass
+              except Exception as e:
+                  print(f"Cleanup error: {e}", file=sys.stderr)
 
       def extract_measurements(quote):
           """Extract measurements from TDX Quote v4."""
@@ -90,7 +117,20 @@ write_files:
 
           def do_GET(self):
               if self.path == "/status":
-                  self.send_json(200, {"available": os.path.exists(TSM_REPORT_PATH), "tsm_path": TSM_REPORT_PATH})
+                  tdx_guest_dev = "/dev/tdx_guest"
+                  status = {
+                      "available": os.path.exists(TSM_REPORT_PATH),
+                      "tsm_path": TSM_REPORT_PATH,
+                      "tdx_guest_device": os.path.exists(tdx_guest_dev),
+                      "device": tdx_guest_dev if os.path.exists(tdx_guest_dev) else None
+                  }
+                  # Try to list TSM report directory contents
+                  if os.path.exists(TSM_REPORT_PATH):
+                      try:
+                          status["tsm_contents"] = os.listdir(TSM_REPORT_PATH)
+                      except Exception as e:
+                          status["tsm_error"] = str(e)
+                  self.send_json(200, status)
               elif self.path == "/quote":
                   try:
                       quote, report_data = get_tdx_quote()
