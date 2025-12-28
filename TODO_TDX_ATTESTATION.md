@@ -8,7 +8,11 @@ Implement TDX (Intel Trust Domain Extensions) remote attestation for the HUFI re
 ### Task 1.1: Create TDX Dockerfile for Recording Oracle
 - [x] Create `recording-oracle/Dockerfile`
 - [x] Pin all dependency versions for reproducibility
+- [x] Pin base image with digest (`node:20-alpine@sha256:658d0f63e501824d6c23e06d4bb95c71e7d704537c9d9272f488ac03a370d448`)
 - [x] Test build reproducibility via GitHub Actions
+  - Note: Docker builds aren't bit-for-bit reproducible without specialized tooling
+  - TDX measurements are captured at runtime from deployed VM, not from Docker image hash
+  - Build once in CI, capture MRTD/RTMRs from TDX hardware
 
 ### Task 1.2: Docker Image Registry
 - [x] Push images to ghcr.io/posix4e/hufi/recording-oracle
@@ -42,7 +46,17 @@ Implement TDX (Intel Trust Domain Extensions) remote attestation for the HUFI re
   - [x] `roles/tdx_vm/` - TDX VM provisioning
   - [x] `roles/tdx_attestation/` - TDX measurement extraction
 
-### Task 3.2: TDX VM Configuration
+### Task 3.2: TDX Attestation Module for Recording Oracle
+- [x] Create `tdx-attestation.service.ts`
+- [x] Create `tdx-attestation.controller.ts`
+- [x] Create `tdx-attestation.module.ts`
+- [x] Integrate into `app.module.ts`
+- [ ] Test endpoints:
+  - [ ] GET `/attestation/status`
+  - [ ] GET `/attestation/quote`
+  - [ ] POST `/attestation/quote` (with custom report_data)
+
+### Task 3.3: TDX VM Configuration
 - [x] Cloud-init template with:
   - [x] TDX attestation proxy (Python, runs natively on port 8081)
   - [x] Docker-compose stack (postgres, minio, recording-oracle)
@@ -50,7 +64,7 @@ Implement TDX (Intel Trust Domain Extensions) remote attestation for the HUFI re
 - [x] QEMU/KVM with TDX launchSecurity
 - [x] SLIRP networking with port forwarding
 
-### Task 3.3: TDX Attestation Proxy
+### Task 3.4: TDX Attestation Proxy
 - [x] HTTP proxy on port 8081 (runs natively in VM, not containerized)
 - [x] Endpoints:
   - [x] GET `/status` - TDX availability and device info
@@ -142,6 +156,12 @@ recording-oracle/ansible/
 │           ├── status.yml
 │           └── measure.yml
 └── group_vars/all.yml
+
+recording-oracle/src/modules/tdx-attestation/
+├── index.ts
+├── tdx-attestation.controller.ts
+├── tdx-attestation.module.ts
+└── tdx-attestation.service.ts
 ```
 
 ### Endpoints
@@ -151,7 +171,9 @@ TDX Attestation Proxy (port 8082 on host, 8081 in VM):
   GET  http://127.0.0.1:8082/quote   - Generate TDX quote
 
 Recording Oracle (port 12000, in docker):
-  GET  http://127.0.0.1:12000/       - API (redirects to /swagger)
+  GET  /attestation/status           - TDX availability (via proxy)
+  GET  /attestation/quote            - Generate TDX quote with random nonce
+  POST /attestation/quote            - Generate TDX quote with custom report_data
 
 Reputation Oracle (after deployment):
   POST /tdx-verification/verify-quote
@@ -170,6 +192,7 @@ JWT_PUBLIC_KEY=<EC public key>
 AES_ENCRYPTION_KEY=<32-char key>
 WEB3_PRIVATE_KEY=<ethereum private key>
 RPC_URL_POLYGON_AMOY=<RPC URL>
+TDX_ATTESTATION_PROXY_URL=http://host.docker.internal:8081
 ```
 
 ### Reputation Oracle
@@ -181,6 +204,26 @@ TDX_EXPECTED_RTMR1=<sha384-hash>
 TDX_EXPECTED_RTMR2=<sha384-hash>
 TDX_EXPECTED_RTMR3=<sha384-hash>
 ```
+
+## Files Created/Modified
+
+### New Files
+- `docs/TDX_ATTESTATION_PLAN.md`
+- `TODO_TDX_ATTESTATION.md` (this file)
+- `.github/workflows/tdx-measure-recording-oracle.yml`
+- `recording-oracle/Dockerfile.tdx` - Reproducible Dockerfile with pinned base image
+- `recording-oracle/.dockerignore` - Docker build exclusions
+- `recording-oracle/scripts/tdx-tools/tdx_quote_gen.c`
+- `recording-oracle/scripts/tdx-tools/README.md`
+- `recording-oracle/ansible/` - Ansible playbooks for TDX VM provisioning
+- `recording-oracle/src/modules/tdx-attestation/` - TDX attestation module
+- `reputation-oracle/src/modules/tdx-verification/`
+- `reputation-oracle/scripts/set-tdx-measurements.sh`
+
+### Modified Files
+- `recording-oracle/Dockerfile` - Fixed native module build deps
+- `recording-oracle/src/app.module.ts` - Added TdxAttestationModule
+- `reputation-oracle/src/app.module.ts` - Added TdxVerificationModule
 
 ## Next Steps
 

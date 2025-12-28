@@ -1,0 +1,67 @@
+# Reproducible Dockerfile for TDX Recording Oracle
+# This Dockerfile is designed for deterministic builds to enable TDX attestation verification
+#
+# Build: docker build -f Dockerfile.tdx -t recording-oracle:tdx .
+# Verify: docker inspect recording-oracle:tdx --format='{{.Id}}'
+
+# Pin base image with digest for reproducibility
+# Updated: 2024-12-28
+FROM node:20-alpine@sha256:658d0f63e501824d6c23e06d4bb95c71e7d704537c9d9272f488ac03a370d448 AS builder
+
+# Set SOURCE_DATE_EPOCH for reproducible timestamps
+# Using Unix epoch 0 for maximum reproducibility
+ENV SOURCE_DATE_EPOCH=0
+
+WORKDIR /app
+
+# Copy dependency files first for better layer caching
+COPY package.json yarn.lock .yarnrc.yml ./
+
+# Install build dependencies and enable corepack
+RUN apk add --no-cache python3 make g++
+
+# Install dependencies with frozen lockfile
+RUN corepack enable && \
+    yarn install --frozen-lockfile --immutable
+
+# Copy source and build
+COPY . .
+RUN yarn build
+
+# Production stage - also pinned
+FROM node:20-alpine@sha256:658d0f63e501824d6c23e06d4bb95c71e7d704537c9d9272f488ac03a370d448 AS production
+
+ENV SOURCE_DATE_EPOCH=0
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=12000
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package.json yarn.lock .yarnrc.yml ./
+
+# Install build dependencies, production deps, then cleanup in single layer
+RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
+    corepack enable && \
+    yarn workspaces focus --production && \
+    apk del .build-deps && \
+    rm -rf /var/cache/apk/* ~/.cache
+
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 -G nodejs && \
+    chown -R nodejs:nodejs /app
+
+USER nodejs
+
+EXPOSE 12000
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:12000/health || exit 1
+
+CMD ["node", "dist/src/main"]

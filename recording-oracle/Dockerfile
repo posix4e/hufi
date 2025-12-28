@@ -3,6 +3,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
 # Install dependencies
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN corepack enable && yarn install --frozen-lockfile
@@ -16,9 +19,15 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Install production dependencies only
+# Copy dependency files
 COPY package.json yarn.lock .yarnrc.yml ./
-RUN corepack enable && yarn workspaces focus --production
+
+# Install build dependencies, production deps, then cleanup in single layer
+RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
+    corepack enable && \
+    yarn workspaces focus --production && \
+    apk del .build-deps && \
+    rm -rf /var/cache/apk/* ~/.cache
 
 # Copy built application
 COPY --from=builder /app/dist ./dist
