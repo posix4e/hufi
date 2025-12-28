@@ -1,0 +1,9 @@
+---
+# Setup SEV Host for Recording Oracle
+# Run this first to configure the bare metal host for SEV
+
+- name: Setup SEV Host for Recording Oracle
+  hosts: sev_host
+  gather_facts: true
+  roles:
+    - role: sev_host

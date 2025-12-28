@@ -1,0 +1,33 @@
+---
+# SEV host configuration variables
+
+# SEV device paths
+sev_device_path: /dev/sev
+sev_guest_device_path: /dev/sev-guest
+
+# Required kernel modules
+sev_kernel_modules:
+  - ccp
+  - kvm_amd
+
+# Kernel parameters for SEV (check if enabled)
+sev_kernel_params:
+  - mem_encrypt=on
+  - kvm_amd.sev=1
+
+# Packages to install for SEV support
+sev_packages:
+  - qemu-system-x86
+  - libvirt-daemon-system
+  - libvirt-clients
+  - ovmf
+  - swtpm
+  - swtpm-tools
+
+# OVMF paths for SEV
+ovmf_code_path: /usr/share/OVMF/OVMF_CODE_4M.fd
+ovmf_vars_path: /usr/share/OVMF/OVMF_VARS_4M.fd
+
+# Libvirt configuration
+libvirt_user: libvirt-qemu
+libvirt_group: kvm
