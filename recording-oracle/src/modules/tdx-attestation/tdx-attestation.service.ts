@@ -91,12 +91,12 @@ export class TdxAttestationService {
   }
 
   private async generateQuoteViaProxy(
-    reportDataHex: string,
+    _reportDataHex: string,
   ): Promise<TdxQuoteResponse> {
+    // Proxy currently only supports GET /quote (generates its own nonce)
+    // TODO: Add POST support to proxy for custom report_data
     const response = await fetch(`${this.proxyUrl}/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ report_data: reportDataHex }),
+      method: 'GET',
       signal: AbortSignal.timeout(30000),
     });
 
