@@ -17,7 +17,7 @@ This directory contains Ansible playbooks and roles for deploying the Recording 
    ```bash
    # Edit inventory/hosts.yml or pass variables on command line
    ansible-playbook playbooks/setup-host.yml \
-     -e "sev_host_ip=51.68.31.68" \
+     -e "sev_host_ip=YOUR_SEV_HOST_IP" \
      -e "sev_host_user=ubuntu"
    ```
 
