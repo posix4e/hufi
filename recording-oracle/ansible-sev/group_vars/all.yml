@@ -7,15 +7,13 @@ vm_memory_mb: 4096
 vm_cpus: 2
 vm_disk_size_gb: 20
 
-# SEV-SNP Configuration
-# Policy bits for SEV-SNP:
-# Bit 0: SMT allowed
-# Bit 1: Reserved (must be 1)
-# Bit 2: Migrate MA (migration agent)
-# Bit 3: Debug allowed
-# Bit 16: Single socket required
-# Default: 0x30000 (SMT allowed, basic policy)
-sev_policy: "0x30000"
+# SEV Configuration
+# Note: Using SEV (not SEV-SNP) as SNP requires kernel 6.10+ and specific BIOS settings
+# Policy bits for SEV:
+# Bit 0: No debug
+# Bit 1: No key sharing
+# Default: 0x0003 (no debug, no key sharing)
+sev_policy: "0x0003"
 sev_enabled: true
 
 # Network Configuration

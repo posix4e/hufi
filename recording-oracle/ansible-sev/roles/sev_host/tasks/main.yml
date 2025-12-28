@@ -46,6 +46,53 @@
   loop: "{{ sev_kernel_modules }}"
   become: true
 
+# Configure kernel parameters for SEV-SNP
+- name: Check current kernel command line
+  ansible.builtin.slurp:
+    src: /proc/cmdline
+  register: current_cmdline
+
+- name: Display current kernel parameters
+  ansible.builtin.debug:
+    msg: "Current cmdline: {{ current_cmdline.content | b64decode }}"
+
+- name: Check if SEV kernel parameters are set
+  ansible.builtin.set_fact:
+    sev_params_needed: "{{ 'kvm_amd.sev=1' not in (current_cmdline.content | b64decode) }}"
+    snp_params_needed: "{{ 'kvm_amd.sev_snp=1' not in (current_cmdline.content | b64decode) }}"
+
+- name: Read current GRUB config
+  ansible.builtin.slurp:
+    src: /etc/default/grub
+  register: grub_config
+  become: true
+
+- name: Configure GRUB for SEV-SNP
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash mem_encrypt=on kvm_amd.sev=1 kvm_amd.sev_snp=1 kvm_amd.sev_es=1"'
+    backup: true
+  become: true
+  register: grub_updated
+  when: sev_params_needed or snp_params_needed
+
+- name: Update GRUB
+  ansible.builtin.command:
+    cmd: update-grub
+  become: true
+  when: grub_updated.changed
+  register: grub_update_result
+
+- name: Display GRUB update result
+  ansible.builtin.debug:
+    msg: "GRUB updated. Reboot required for SEV-SNP to be enabled."
+  when: grub_updated.changed
+
+- name: Set reboot required fact
+  ansible.builtin.set_fact:
+    reboot_required: "{{ grub_updated.changed | default(false) }}"
+
 - name: Check if SEV device exists
   ansible.builtin.stat:
     path: "{{ sev_device_path }}"
@@ -76,6 +123,35 @@
     state: present
     update_cache: true
   become: true
+
+# Install HWE edge kernel for SEV-SNP support (requires kernel 6.10+)
+- name: Check current kernel version
+  ansible.builtin.shell:
+    cmd: uname -r
+  register: current_kernel
+  changed_when: false
+
+- name: Display current kernel
+  ansible.builtin.debug:
+    msg: "Current kernel: {{ current_kernel.stdout }}"
+
+- name: Check if kernel upgrade needed for SEV-SNP
+  ansible.builtin.set_fact:
+    kernel_upgrade_needed: "{{ current_kernel.stdout is version('6.10', '<') }}"
+
+- name: Install HWE edge kernel for SEV-SNP support
+  ansible.builtin.apt:
+    name:
+      - linux-image-generic-hwe-24.04-edge
+      - linux-headers-generic-hwe-24.04-edge
+    state: present
+  become: true
+  register: kernel_installed
+  when: kernel_upgrade_needed
+
+- name: Set kernel reboot flag
+  ansible.builtin.set_fact:
+    kernel_reboot_required: "{{ kernel_installed.changed | default(false) }}"
 
 - name: Check OVMF firmware exists
   ansible.builtin.stat:
@@ -147,3 +223,55 @@
   ansible.builtin.debug:
     var: sev_info.stdout_lines
   when: sev_info.stdout_lines is defined
+
+# Reboot if kernel was upgraded or kernel parameters were updated
+- name: Reboot to apply kernel upgrade or parameters
+  ansible.builtin.reboot:
+    msg: "Rebooting to enable SEV-SNP (kernel upgrade or parameters)"
+    reboot_timeout: 300
+  become: true
+  when: (reboot_required | default(false)) or (kernel_reboot_required | default(false))
+
+- name: Wait for system to come back
+  ansible.builtin.wait_for_connection:
+    timeout: 300
+  when: (reboot_required | default(false)) or (kernel_reboot_required | default(false))
+
+- name: Check new kernel version after reboot
+  ansible.builtin.shell:
+    cmd: uname -r
+  register: new_kernel
+  changed_when: false
+  when: kernel_reboot_required | default(false)
+
+- name: Display new kernel version
+  ansible.builtin.debug:
+    msg: "New kernel: {{ new_kernel.stdout }}"
+  when: kernel_reboot_required | default(false) and new_kernel.stdout is defined
+
+- name: Verify SEV-SNP after reboot
+  ansible.builtin.shell:
+    cmd: dmesg | grep -i "SEV-SNP\|sev_snp\|SEV API" | head -10
+  register: snp_check
+  changed_when: false
+  failed_when: false
+  become: true
+  when: (reboot_required | default(false)) or (kernel_reboot_required | default(false))
+
+- name: Display SEV-SNP status after reboot
+  ansible.builtin.debug:
+    var: snp_check.stdout_lines
+  when: ((reboot_required | default(false)) or (kernel_reboot_required | default(false))) and snp_check.stdout_lines is defined
+
+- name: Verify SEV-SNP in virsh capabilities after reboot
+  ansible.builtin.command:
+    cmd: virsh domcapabilities --machine q35 --virttype kvm
+  register: domcaps_after
+  changed_when: false
+  failed_when: false
+  when: (reboot_required | default(false)) or (kernel_reboot_required | default(false))
+
+- name: Check for SEV-SNP support after reboot
+  ansible.builtin.debug:
+    msg: "SEV-SNP {{ 'SUPPORTED' if 'sev-snp' in domcaps_after.stdout else 'not available' }} after kernel upgrade"
+  when: ((reboot_required | default(false)) or (kernel_reboot_required | default(false))) and domcaps_after.stdout is defined

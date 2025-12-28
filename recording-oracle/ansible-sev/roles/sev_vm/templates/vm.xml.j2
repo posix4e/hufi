@@ -28,8 +28,10 @@
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-  <launchSecurity type='sev-snp'>
-    <policy>{{ sev_policy }}</policy>
+  <launchSecurity type='sev'>
+    <policy>0x0003</policy>
+    <cbitpos>51</cbitpos>
+    <reducedPhysBits>1</reducedPhysBits>
   </launchSecurity>
   <devices>
     <disk type='file' device='disk'>

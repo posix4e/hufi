@@ -25,8 +25,8 @@ sev_packages:
   - swtpm-tools
 
 # OVMF paths for SEV
-ovmf_code_path: /usr/share/OVMF/OVMF_CODE.fd
-ovmf_vars_path: /usr/share/OVMF/OVMF_VARS.fd
+ovmf_code_path: /usr/share/OVMF/OVMF_CODE_4M.fd
+ovmf_vars_path: /usr/share/OVMF/OVMF_VARS_4M.fd
 
 # Libvirt configuration
 libvirt_user: libvirt-qemu

@@ -10,5 +10,5 @@ vm_xml_path: "{{ cloud_init_dir }}/{{ vm_name }}.xml"
 sev_device_path: /dev/sev-guest
 
 # OVMF paths for SEV (AMD SEV needs OVMF with SEV support)
-ovmf_code_path: /usr/share/OVMF/OVMF_CODE.fd
-ovmf_vars_template: /usr/share/OVMF/OVMF_VARS.fd
+ovmf_code_path: /usr/share/OVMF/OVMF_CODE_4M.fd
+ovmf_vars_template: /usr/share/OVMF/OVMF_VARS_4M.fd
