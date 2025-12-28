@@ -77,11 +77,33 @@
   register: grub_updated
   when: sev_params_needed or snp_params_needed
 
+# Note: SEV-SNP requires iommu=on (not passthrough) but some firmware has init issues
+# with this setting. If SEV-SNP is required, enable_snp_iommu can be set to true,
+# but this may cause SEV to fail on some hosts (OVH firmware issue).
+- name: Configure IOMMU for SEV-SNP (optional)
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: 'iommu=pt'
+    replace: 'iommu=on amd_iommu=on'
+    backup: true
+  become: true
+  register: iommu_updated
+  when: enable_snp_iommu | default(false)
+
+- name: Warn about IOMMU passthrough mode
+  ansible.builtin.debug:
+    msg: |
+      WARNING: IOMMU is in passthrough mode (iommu=pt).
+      SEV-SNP requires iommu=on, but some firmware (OVH) has init issues.
+      Basic SEV and SEV-ES will work, but SEV-SNP attestation is disabled.
+      To try enabling SNP: set enable_snp_iommu=true (may cause SEV init failures).
+  when: "'iommu=pt' in (current_cmdline.content | b64decode)"
+
 - name: Update GRUB
   ansible.builtin.command:
     cmd: update-grub
   become: true
-  when: grub_updated.changed
+  when: grub_updated.changed or (iommu_updated.changed | default(false))
   register: grub_update_result
 
 - name: Display GRUB update result
@@ -91,7 +113,7 @@
 
 - name: Set reboot required fact
   ansible.builtin.set_fact:
-    reboot_required: "{{ grub_updated.changed | default(false) }}"
+    reboot_required: "{{ (grub_updated.changed | default(false)) or (iommu_updated.changed | default(false)) }}"
 
 - name: Check if SEV device exists
   ansible.builtin.stat:
