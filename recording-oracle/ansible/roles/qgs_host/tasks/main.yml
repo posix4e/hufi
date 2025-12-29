@@ -1,0 +1,133 @@
+---
+# TDX Host Setup using Canonical's TDX tools
+# Installs TDX kernel, QGS, and attestation services
+
+# Check if TDX is already set up
+- name: Check if TDX is already initialized
+  ansible.builtin.shell:
+    cmd: 'dmesg | grep -q "tdx: module initialized" && echo "yes" || echo "no"'
+  register: tdx_initialized
+  changed_when: false
+  become: true
+
+- name: Check if Canonical TDX setup was run
+  ansible.builtin.stat:
+    path: /opt/canonical-tdx/setup-tdx-host.sh
+  register: canonical_tdx_script
+
+# Clone and run Canonical TDX setup
+- name: Clone Canonical TDX repository
+  ansible.builtin.git:
+    repo: https://github.com/canonical/tdx.git
+    dest: /opt/canonical-tdx
+    version: main
+    force: true
+  become: true
+  when: not canonical_tdx_script.stat.exists
+
+- name: Configure TDX setup for attestation
+  ansible.builtin.lineinfile:
+    path: /opt/canonical-tdx/setup-tdx-config
+    regexp: '^TDX_SETUP_ATTESTATION='
+    line: 'TDX_SETUP_ATTESTATION=1'
+  become: true
+  when: tdx_initialized.stdout == "no"
+
+- name: Run Canonical TDX host setup script
+  ansible.builtin.shell:
+    cmd: DEBIAN_FRONTEND=noninteractive ./setup-tdx-host.sh
+    chdir: /opt/canonical-tdx
+  become: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: tdx_setup
+  when: tdx_initialized.stdout == "no"
+
+- name: Notify about TDX reboot requirement
+  ansible.builtin.debug:
+    msg: "TDX host setup complete. A REBOOT is required to enable TDX. Run: sudo reboot"
+  when: tdx_initialized.stdout == "no" and tdx_setup is changed
+
+# Docker installation
+- name: Install Docker
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+  become: true
+
+- name: Enable and start Docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+  become: true
+
+# libvirt installation for TDX VMs
+- name: Install libvirt and QEMU
+  ansible.builtin.apt:
+    name:
+      - qemu-system-x86
+      - libvirt-daemon-system
+      - libvirt-clients
+      - virtinst
+      - ovmf
+    state: present
+  become: true
+
+- name: Enable and start libvirtd
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+  become: true
+
+# QGS configuration (installed by Canonical script)
+- name: Configure QGS to use Unix socket instead of TCP port
+  ansible.builtin.replace:
+    path: /etc/qgs.conf
+    regexp: '^port = '
+    replace: '#port = '
+  become: true
+  notify: Restart QGS
+
+- name: Create QGS runtime directory
+  ansible.builtin.file:
+    path: "{{ qgs_runtime_dir }}"
+    state: directory
+    owner: "{{ qgs_user }}"
+    group: "{{ qgs_group }}"
+    mode: '0755'
+  become: true
+  ignore_errors: true
+
+- name: Check if libvirt-qemu AppArmor profile exists
+  ansible.builtin.stat:
+    path: /etc/apparmor.d/abstractions/libvirt-qemu
+  register: libvirt_apparmor
+
+- name: Configure AppArmor for libvirt QGS access
+  ansible.builtin.lineinfile:
+    path: /etc/apparmor.d/abstractions/libvirt-qemu
+    line: '  "{{ qgs_runtime_dir }}/**" rw,'
+    insertbefore: '^\}'
+  become: true
+  notify: Reload AppArmor
+  when: libvirt_apparmor.stat.exists
+
+- name: Enable and start QGS daemon
+  ansible.builtin.systemd:
+    name: qgsd
+    enabled: true
+    state: started
+  become: true
+  when: tdx_initialized.stdout == "yes"
+
+- name: Verify QGS daemon is running
+  ansible.builtin.systemd:
+    name: qgsd
+  register: qgsd_status
+  failed_when: qgsd_status.status.ActiveState != "active"
+  when: tdx_initialized.stdout == "yes"
