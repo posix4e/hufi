@@ -88,7 +88,7 @@
     backup: true
   become: true
   register: iommu_updated
-  when: enable_snp_iommu | default(false)
+  when: enable_snp_iommu | default(false) | bool
 
 - name: Warn about IOMMU passthrough mode
   ansible.builtin.debug:
